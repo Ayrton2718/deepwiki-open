@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     git \
     ca-certificates \
+    coreutils \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
@@ -89,9 +90,14 @@ if [ -z "$OPENAI_API_KEY" ] || [ -z "$GOOGLE_API_KEY" ]; then\n\
   echo "You can provide them via a mounted .env file or as environment variables when running the container."\n\
 fi\n\
 \n\
+# Configure logging to prevent buffer overflow\n\
+export PYTHONUNBUFFERED=1\n\
+export LOG_LEVEL=${LOG_LEVEL:-WARNING}\n\
+\n\
 # Start the API server in the background with the configured port\n\
-python -m api.main --port ${PORT:-8001} &\n\
-PORT=3000 HOSTNAME=0.0.0.0 node server.js &\n\
+# Use stdbuf to set line buffering for stdout and stderr\n\
+stdbuf -oL -eL python -m api.main --port ${PORT:-8001} &\n\
+stdbuf -oL -eL PORT=3000 HOSTNAME=0.0.0.0 node server.js &\n\
 wait -n\n\
 exit $?' > /app/start.sh && chmod +x /app/start.sh
 
@@ -99,6 +105,10 @@ exit $?' > /app/start.sh && chmod +x /app/start.sh
 ENV PORT=8001
 ENV NODE_ENV=production
 ENV SERVER_BASE_URL=http://localhost:${PORT:-8001}
+# Set Python unbuffered output to prevent blocking issues
+ENV PYTHONUNBUFFERED=1
+# Increase buffer sizes for Docker logging
+ENV DOCKER_LOG_BUFFER_SIZE=65536
 
 # Create empty .env file (will be overridden if one exists at runtime)
 RUN touch .env
